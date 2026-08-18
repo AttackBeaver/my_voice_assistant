@@ -1,0 +1,81 @@
+# Виртуальное окружение
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# Python кэш
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Распространяемые файлы
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Логи и временные файлы
+*.log
+*.tmp
+*.temp
+*.wav
+*.mp3
+output.wav
+
+# Модели (большие файлы)
+model/
+tts_model/
+*.zip
+*.onnx
+
+# Настройки IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Файлы с данными пользователя (пути, конфиги)
+config.ini
+.env
+.secrets
+
+# Файлы кэша pip
+.pip-cache/
+
+# Отчёты о тестах
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Jupyter Notebooks
+.ipynb_checkpoints/
+
+# Файлы из терминала / логов (вы уже сохраняли)
+python.txt
+pip.txt
+import os.txt
+image.png
+VOSK Models.pdf

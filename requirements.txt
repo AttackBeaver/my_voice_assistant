@@ -1,0 +1,7 @@
+vosk
+pyttsx3
+pyautogui
+sounddevice
+numpy
+requests
+screeninfo
