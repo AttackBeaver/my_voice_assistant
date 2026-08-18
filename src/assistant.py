@@ -7,7 +7,6 @@ import sys
 import subprocess
 import random
 import re
-import pyttsx3
 import sounddevice as sd
 import numpy as np
 import pyautogui
@@ -17,10 +16,11 @@ import ctypes
 from ctypes import wintypes
 from vosk import Model, KaldiRecognizer
 from datetime import datetime
+import win32com.client
 
 # ===== КОНФИГУРАЦИЯ =====
 MODEL_PATH = "model"
-WAKE_WORD = "Руна"  # теперь в нижнем регистре
+WAKE_WORD = "руна"
 COOLDOWN_SECONDS = 2
 
 YANDEX_BROWSER_PATH = None
@@ -30,7 +30,7 @@ FOLDERS_TO_OPEN = [
     r"E:\Работа",
 ]
 
-# ===== СЛОВАРЬ ЧИСЛИТЕЛЬНЫХ (для напоминаний) =====
+# ===== СЛОВАРЬ ЧИСЛИТЕЛЬНЫХ =====
 NUM_WORDS = {
     'один': 1, 'одну': 1, 'одна': 1,
     'два': 2, 'две': 2,
@@ -62,7 +62,11 @@ NUM_WORDS = {
 
 class Assistant:
     def __init__(self):
-        self.tts_lock = threading.Lock()
+        # --- Единый экземпляр SAPI для синтеза ---
+        self.speaker = win32com.client.Dispatch("SAPI.SpVoice")
+        # Настройка скорости и громкости
+        self.speaker.Rate = 5        # скорость: -10..10, 0 — норма, 2 — быстрее
+        self.speaker.Volume = 100    # громкость: 0..100
 
         self.model = self._load_model()
         self.recognizer = KaldiRecognizer(self.model, 16000)
@@ -140,7 +144,7 @@ class Assistant:
 
         return f"{greeting}! Сегодня {weekday}, {date_str}, местное время {time_str}{weather_str}."
 
-    # ------------------ Модель и синтез ------------------
+    # ------------------ Модель распознавания ------------------
     def _load_model(self):
         if not os.path.exists(MODEL_PATH):
             raise FileNotFoundError(f"Папка модели '{MODEL_PATH}' не найдена.")
@@ -152,16 +156,13 @@ class Assistant:
                 return Model(full_path)
         raise FileNotFoundError("Не найдена папка с моделью Vosk внутри 'model/'.")
 
+    # ------------------ Синтез речи (SAPI) с прерыванием ------------------
     def speak(self, text):
         print(f"Руна: {text}")
-        def _speak():
-            with self.tts_lock:
-                engine = pyttsx3.init()
-                engine.setProperty('rate', 250)
-                engine.setProperty('volume', 20)
-                engine.say(text)
-                engine.runAndWait()
-        threading.Thread(target=_speak, daemon=True).start()
+        # Останавливаем текущую речь через очистку очереди
+        self.speaker.Speak("", 2)  # 2 = SVSFPurgeBeforeSpeak (без воспроизведения)
+        # Запускаем новую речь асинхронно с очисткой
+        self.speaker.Speak(text, 1)  # 1 = SVSFlagsAsync | SVSFPurgeBeforeSpeak
 
     def audio_callback(self, indata, frames, time, status):
         if status:
@@ -284,7 +285,7 @@ class Assistant:
             print(f"Ошибка открытия на втором мониторе: {e}")
             self.speak("Не удалось открыть браузер на втором мониторе.")
 
-    # ------------------ Надёжные функции управления окнами (WinAPI) ------------------
+    # ------------------ Надёжные функции управления окнами ------------------
     def _minimize_all_windows(self):
         try:
             user32 = ctypes.windll.user32
@@ -315,9 +316,8 @@ class Assistant:
             print(f"Ошибка разворачивания через WinAPI: {e}")
             return False
 
-    # ------------------ Таймер-напоминалка (исправленная) ------------------
+    # ------------------ Таймер-напоминалка ------------------
     def _parse_time_amount(self, text):
-        """Возвращает (amount, unit, start, end) или (None,None,None,None)"""
         # Сначала ищем цифру
         match = re.search(r'(\d+)\s+(минут|минуту|минуты|секунд|секунду|секунды|час|часа|часов)', text)
         if match:
@@ -407,7 +407,8 @@ class Assistant:
     # ------------------ Обработка команд ------------------
     def process_command(self, text):
         text_lower = text.lower().strip()
-        for phrase in ["Руна", "слушаем вас", "слушаю вас", "жаль вас з", "служит вас"]:
+        # Удаляем служебные фразы (все в нижнем регистре)
+        for phrase in ["руна", "слушаем вас", "слушаю вас", "жаль вас з", "служит вас"]:
             text_lower = text_lower.replace(phrase, "").strip()
         print(f"Распознано (команда после очистки): '{text_lower}'")
 
@@ -628,7 +629,7 @@ class Assistant:
                             if WAKE_WORD in partial_text:
                                 self.is_active = True
                                 self.speak("Да-да.")
-                                # Не сбрасываем recognizer
+                                # Не сбрасываем recognizer, чтобы накопить команду
 
 if __name__ == "__main__":
     assistant = Assistant()
