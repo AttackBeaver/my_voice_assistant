@@ -1,8 +1,10 @@
 vosk
-pyttsx3           
+pyttsx3
 pyautogui
 sounddevice
 numpy
 requests
 screeninfo
-pywin32           
+pywin32
+pystray
+Pillow

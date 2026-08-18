@@ -1,9 +1,9 @@
 import os
+import sys
 import json
 import time
 import threading
 import queue
-import sys
 import subprocess
 import random
 import re
@@ -17,9 +17,14 @@ from ctypes import wintypes
 from vosk import Model, KaldiRecognizer
 from datetime import datetime
 import win32com.client
+import pystray
+from PIL import Image, ImageDraw
+import os
 
 # ===== КОНФИГУРАЦИЯ =====
-MODEL_PATH = "model"
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+MODEL_PATH = os.path.join(os.path.dirname(SCRIPT_DIR), "model")
+
 WAKE_WORD = "руна"
 COOLDOWN_SECONDS = 2
 
@@ -62,11 +67,9 @@ NUM_WORDS = {
 
 class Assistant:
     def __init__(self):
-        # --- Единый экземпляр SAPI для синтеза ---
         self.speaker = win32com.client.Dispatch("SAPI.SpVoice")
-        # Настройка скорости и громкости
-        self.speaker.Rate = 5        # скорость: -10..10, 0 — норма, 2 — быстрее
-        self.speaker.Volume = 100    # громкость: 0..100
+        self.speaker.Rate = 5
+        self.speaker.Volume = 100
 
         self.model = self._load_model()
         self.recognizer = KaldiRecognizer(self.model, 16000)
@@ -80,7 +83,6 @@ class Assistant:
         self.cooldown_until = 0
         self.running = True
 
-        # Состояние подтверждения для выключения/перезагрузки
         self.waiting_confirmation = False
         self.confirmation_action = None
         self.confirmation_timer = None
@@ -94,13 +96,11 @@ class Assistant:
             response = requests.get("http://wttr.in/?format=%C+%t", timeout=10).text.strip()
             if not response:
                 return ""
-
             parts = response.rsplit(' ', 1)
             if len(parts) != 2:
                 return ""
             condition_en = parts[0].strip()
             temp_raw = parts[1].strip()
-
             weather_translation = {
                 "Clear": "ясно", "Sunny": "солнечно", "Partly cloudy": "переменная облачность",
                 "Cloudy": "облачно", "Overcast": "пасмурно", "Light rain": "небольшой дождь",
@@ -114,7 +114,6 @@ class Assistant:
                 if eng.lower() in condition_en.lower():
                     condition_ru = rus
                     break
-
             temp = temp_raw.replace("°C", "градусов").strip()
             return f"{condition_ru}, {temp}"
         except Exception as e:
@@ -132,19 +131,15 @@ class Assistant:
             greeting = "Добрый вечер"
         else:
             greeting = "Доброй ночи"
-
         time_str = now.strftime("%H:%M")
         weekdays = ["понедельник", "вторник", "среда", "четверг", "пятница", "суббота", "воскресенье"]
         weekday = weekdays[now.weekday()]
         months = ["января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября", "октября", "ноября", "декабря"]
         date_str = f"{now.day} {months[now.month-1]}"
-
         weather = self._get_weather()
         weather_str = f", за окном: {weather}" if weather else ""
-
         return f"{greeting}! Сегодня {weekday}, {date_str}, местное время {time_str}{weather_str}."
 
-    # ------------------ Модель распознавания ------------------
     def _load_model(self):
         if not os.path.exists(MODEL_PATH):
             raise FileNotFoundError(f"Папка модели '{MODEL_PATH}' не найдена.")
@@ -156,13 +151,11 @@ class Assistant:
                 return Model(full_path)
         raise FileNotFoundError("Не найдена папка с моделью Vosk внутри 'model/'.")
 
-    # ------------------ Синтез речи (SAPI) с прерыванием ------------------
+    # ------------------ Синтез речи (SAPI) ------------------
     def speak(self, text):
         print(f"Руна: {text}")
-        # Останавливаем текущую речь через очистку очереди
-        self.speaker.Speak("", 2)  # 2 = SVSFPurgeBeforeSpeak (без воспроизведения)
-        # Запускаем новую речь асинхронно с очисткой
-        self.speaker.Speak(text, 1)  # 1 = SVSFlagsAsync | SVSFPurgeBeforeSpeak
+        self.speaker.Speak("", 2)  # остановка
+        self.speaker.Speak(text, 1)  # асинхронно
 
     def audio_callback(self, indata, frames, time, status):
         if status:
@@ -194,7 +187,6 @@ class Assistant:
         if not browser_path or not os.path.exists(browser_path):
             self.speak("Яндекс.Браузер не найден. Проверьте путь.")
             return
-
         monitors = screeninfo.get_monitors()
         if len(monitors) < 2:
             self.speak("Обнаружено меньше двух мониторов. Открываю одно окно.")
@@ -202,33 +194,27 @@ class Assistant:
             time.sleep(2)
             pyautogui.hotkey('win', 'up')
             return
-
         monitors_sorted = sorted(monitors, key=lambda m: m.x)
         primary = next((m for m in monitors_sorted if m.is_primary), monitors_sorted[0])
         secondary = next((m for m in monitors_sorted if not m.is_primary), None)
-
         self.speak("Открываю рабочие окна.")
         proc1 = subprocess.Popen([browser_path])
         time.sleep(1.5)
         proc2 = subprocess.Popen([browser_path])
         time.sleep(1.5)
-
         windows = pyautogui.getWindowsWithTitle('Яндекс')
         if not windows:
             windows = pyautogui.getWindowsWithTitle('Yandex')
         if not windows:
             self.speak("Не удалось найти окна браузера. Попробуйте вручную.")
             return
-
         browser_windows = windows[-2:] if len(windows) >= 2 else windows
-
         if len(browser_windows) >= 2:
             win1 = browser_windows[0]
             win1.restore()
             win1.moveTo(secondary.x, secondary.y)
             win1.resizeTo(secondary.width, secondary.height)
             win1.maximize()
-
             win2 = browser_windows[1]
             win2.restore()
             win2.moveTo(primary.x, primary.y)
@@ -239,7 +225,6 @@ class Assistant:
             browser_windows[0].moveTo(primary.x, primary.y)
             browser_windows[0].resizeTo(primary.width, primary.height)
             browser_windows[0].maximize()
-
         time.sleep(1)
 
     def _open_browser_url(self, url):
@@ -257,13 +242,10 @@ class Assistant:
                 self.speak("Обнаружено меньше двух мониторов. Открываю на основном.")
                 self._open_browser_url(url)
                 return
-
             monitors_sorted = sorted(monitors, key=lambda m: m.x)
             secondary = monitors_sorted[0]
-
             subprocess.Popen(['start', url], shell=True)
             time.sleep(2)
-
             windows = pyautogui.getWindowsWithTitle('Яндекс')
             if not windows:
                 windows = pyautogui.getWindowsWithTitle('Yandex')
@@ -274,7 +256,6 @@ class Assistant:
             if not windows:
                 self.speak("Не удалось найти окно браузера. Попробуйте вручную.")
                 return
-
             win = windows[-1]
             win.restore()
             win.moveTo(secondary.x, secondary.y)
@@ -285,7 +266,7 @@ class Assistant:
             print(f"Ошибка открытия на втором мониторе: {e}")
             self.speak("Не удалось открыть браузер на втором мониторе.")
 
-    # ------------------ Надёжные функции управления окнами ------------------
+    # ------------------ Управление окнами (WinAPI) ------------------
     def _minimize_all_windows(self):
         try:
             user32 = ctypes.windll.user32
@@ -295,10 +276,9 @@ class Assistant:
                     user32.ShowWindow(hwnd, 6)
                 return True
             user32.EnumWindows(WNDENUMPROC(enum_callback), 0)
-            print("Сворачивание через WinAPI выполнено")
             return True
         except Exception as e:
-            print(f"Ошибка сворачивания через WinAPI: {e}")
+            print(f"Ошибка сворачивания: {e}")
             return False
 
     def _restore_all_windows(self):
@@ -310,28 +290,21 @@ class Assistant:
                 return True
             WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_int, ctypes.c_int)
             user32.EnumWindows(WNDENUMPROC(enum_callback), 0)
-            print("Разворачивание через WinAPI выполнено")
             return True
         except Exception as e:
-            print(f"Ошибка разворачивания через WinAPI: {e}")
+            print(f"Ошибка разворачивания: {e}")
             return False
 
     # ------------------ Таймер-напоминалка ------------------
     def _parse_time_amount(self, text):
-        # Сначала ищем цифру
         match = re.search(r'(\d+)\s+(минут|минуту|минуты|секунд|секунду|секунды|час|часа|часов)', text)
         if match:
-            amount = int(match.group(1))
-            unit = match.group(2)
-            return amount, unit, match.start(), match.end()
-        # Ищем слово из словаря
+            return int(match.group(1)), match.group(2), match.start(), match.end()
         for word, num in NUM_WORDS.items():
             pattern = rf'\b{word}\s+(минут|минуту|минуты|секунд|секунду|секунды|час|часа|часов)\b'
             match = re.search(pattern, text)
             if match:
-                amount = num
-                unit = match.group(1)
-                return amount, unit, match.start(), match.end()
+                return num, match.group(1), match.start(), match.end()
         return None, None, None, None
 
     def _set_reminder(self, text):
@@ -339,8 +312,6 @@ class Assistant:
         if amount is None:
             self.speak("Не поняла время. Скажите, например: 'напомни через 5 минут позвонить'.")
             return
-
-        # Преобразуем единицу в секунды
         if unit.startswith('минут'):
             delay = amount * 60
         elif unit.startswith('секунд'):
@@ -350,23 +321,16 @@ class Assistant:
         else:
             self.speak("Неизвестная единица времени.")
             return
-
-        # Извлекаем текст напоминания: удаляем найденную временную часть и слово "напомни"
         reminder_text = text[:start] + text[end:]
-        # Удаляем слово "напомни" (и варианты) и лишние пробелы
         for word in ["напомни", "напомнить", "напомни через"]:
             reminder_text = reminder_text.replace(word, "").strip()
-        # Убираем "через" если осталось
         reminder_text = reminder_text.replace("через", "").strip()
         if not reminder_text:
             reminder_text = "напоминание"
-
         self.speak(f"Хорошо, напомню через {amount} {unit}.")
-
         def reminder_job():
             time.sleep(delay)
             self.speak(f"Напоминание: {reminder_text}")
-
         threading.Thread(target=reminder_job, daemon=True).start()
 
     # ------------------ Подтверждение выключения/перезагрузки ------------------
@@ -407,32 +371,22 @@ class Assistant:
     # ------------------ Обработка команд ------------------
     def process_command(self, text):
         text_lower = text.lower().strip()
-        # Удаляем служебные фразы (все в нижнем регистре)
         for phrase in ["руна", "слушаем вас", "слушаю вас", "жаль вас з", "служит вас"]:
             text_lower = text_lower.replace(phrase, "").strip()
-        print(f"Распознано (команда после очистки): '{text_lower}'")
+        print(f"Распознано (команда): '{text_lower}'")
 
-        # Выход
         if "стоп" in text_lower or "выход" in text_lower:
             self.speak("До свидания!")
             self.running = False
             return
 
-        # Похвала
         praise_phrases = ["спасибо", "ты молодец", "умница", "отлично", "супер", "классно", "круто", "хорошая работа", "молодец"]
         if any(phrase in text_lower for phrase in praise_phrases):
-            responses = [
-                "Спасибо, приятно слышать.",
-                "Рада стараться.",
-                "Всегда к вашим услугам.",
-                "Очень приятно.",
-                "Стараюсь!"
-            ]
+            responses = ["Спасибо, приятно слышать.", "Рада стараться.", "Всегда к вашим услугам.", "Очень приятно.", "Стараюсь!"]
             self.speak(random.choice(responses))
             self.start_cooldown()
             return
 
-        # Справка
         if any(phrase in text_lower for phrase in ["что умеешь", "расскажи о себе", "твои возможности", "помощь", "справка"]):
             self.speak(
                 "Я умею завершать работу по команде 'стоп' или 'выход'. "
@@ -445,7 +399,6 @@ class Assistant:
             self.start_cooldown()
             return
 
-        # Рабочий режим
         if any(phrase in text_lower for phrase in ["работаем", "работа", "рабочий режим", "воркать", "на работу"]):
             self.speak("Запускаю рабочий режим.")
             self._open_folders()
@@ -454,7 +407,6 @@ class Assistant:
             self.start_cooldown()
             return
 
-        # Управление окнами
         if "закр" in text_lower:
             if "активное окно" in text_lower or "активную" in text_lower:
                 self.speak("Закрываю активное окно.")
@@ -496,14 +448,8 @@ class Assistant:
             self.start_cooldown()
             return
 
-        # Новые команды
         if "как дела" in text_lower or "как твои дела" in text_lower:
-            answers = [
-                "Хорошо, спасибо что спросили!",
-                "Отлично! А у вас?",
-                "Всё замечательно, работаю.",
-                "Прекрасно, я всегда готова помочь!"
-            ]
+            answers = ["Хорошо, спасибо что спросили!", "Отлично! А у вас?", "Всё замечательно, работаю.", "Прекрасно, я всегда готова помочь!"]
             self.speak(random.choice(answers))
             self.start_cooldown()
             return
@@ -526,7 +472,6 @@ class Assistant:
             self.start_cooldown()
             return
 
-        # Напоминание
         if "напомни" in text_lower:
             self._set_reminder(text_lower)
             self.start_cooldown()
@@ -541,7 +486,6 @@ class Assistant:
             self.start_cooldown()
             return
 
-        # Поиск в интернете
         if "найди в интернете" in text_lower or "поищи в интернете" in text_lower:
             if "втором мониторе" in text_lower or "на втором мониторе" in text_lower or "на второй монитор" in text_lower:
                 match = re.search(r'(найди в интернете|поищи в интернете)\s*(.+)', text_lower)
@@ -578,9 +522,9 @@ class Assistant:
     def start_cooldown(self):
         self.cooldown_until = time.time() + COOLDOWN_SECONDS
         self.is_active = False
-        print(f"Кулдаун {COOLDOWN_SECONDS} сек. Игнорирую 'Руна' до {time.ctime(self.cooldown_until)}")
+        print(f"Кулдаун {COOLDOWN_SECONDS} сек.")
 
-    # ------------------ Главный цикл ------------------
+    # ------------------ Основной цикл ------------------
     def listen_loop(self):
         with sd.RawInputStream(samplerate=self.sample_rate, channels=1, dtype='int16',
                                blocksize=self.block_size, callback=self.audio_callback):
@@ -591,35 +535,28 @@ class Assistant:
                     text = result.get("text", "").strip().lower()
                     if not text:
                         continue
-
                     print(f"Услышал (финал): {text}")
-
                     now = time.time()
                     if self.waiting_confirmation:
                         self._process_confirmation(text)
                         self.recognizer.Reset()
                         continue
-
                     if now < self.cooldown_until:
                         print(f"На кулдауне (осталось {int(self.cooldown_until - now)} сек). Игнорирую.")
                         self.recognizer.Reset()
                         continue
-
                     if not self.is_active:
                         if WAKE_WORD in text:
                             self.is_active = True
                             self.speak("Да-да.")
                             self.recognizer.Reset()
                         continue
-
                     cmd_text = text.replace(WAKE_WORD, "").strip()
                     if not cmd_text:
                         continue
-
                     self.process_command(cmd_text)
                     self.is_active = False
                     self.recognizer.Reset()
-
                 else:
                     partial = json.loads(self.recognizer.PartialResult())
                     partial_text = partial.get("partial", "").strip().lower()
@@ -629,10 +566,59 @@ class Assistant:
                             if WAKE_WORD in partial_text:
                                 self.is_active = True
                                 self.speak("Да-да.")
-                                # Не сбрасываем recognizer, чтобы накопить команду
 
+# ------------------ Функция для трея ------------------
+def create_tray_icon(assistant):
+    # Создаём иконку (простая чёрная точка)
+    image = Image.new('RGB', (64, 64), color='black')
+    draw = ImageDraw.Draw(image)
+    draw.ellipse((16, 16, 48, 48), fill='white')
+    def on_exit(icon, item):
+        assistant.running = False
+        icon.stop()
+        os._exit(0)
+    def on_show(icon, item):
+        pass  # можно показать статус
+    menu = pystray.Menu(
+        pystray.MenuItem("Ассистент работает", on_show, default=True),
+        pystray.MenuItem("Выход", on_exit)
+    )
+    icon = pystray.Icon("Руна", image, "Руна (голосовой ассистент)", menu)
+    icon.run()
+
+# ------------------ Автозагрузка ------------------
+def add_to_startup():
+    """Добавляет ярлык в папку автозагрузки Windows"""
+    startup_folder = os.path.join(os.getenv('APPDATA'), 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup')
+    shortcut_path = os.path.join(startup_folder, 'Руна-ассистент.lnk')
+    if os.path.exists(shortcut_path):
+        return  # уже есть
+
+    # Создаём ярлык через скрипт PowerShell
+    script = f'''
+    $WshShell = New-Object -comObject WScript.Shell
+    $Shortcut = $WshShell.CreateShortcut("{shortcut_path}")
+    $Shortcut.TargetPath = "pythonw.exe"
+    $Shortcut.Arguments = "{os.path.abspath(__file__)}"
+    $Shortcut.WorkingDirectory = "{os.path.dirname(os.path.abspath(__file__))}"
+    $Shortcut.Save()
+    '''
+    try:
+        subprocess.run(['powershell', '-Command', script], capture_output=True, check=True)
+        print("Ассистент добавлен в автозагрузку.")
+    except Exception as e:
+        print(f"Не удалось добавить в автозагрузку: {e}")
+
+# ------------------ Точка входа ------------------
 if __name__ == "__main__":
+    # Добавляем в автозагрузку при первом запуске
+    add_to_startup()
+
     assistant = Assistant()
+    # Запускаем поток для трея
+    tray_thread = threading.Thread(target=create_tray_icon, args=(assistant,), daemon=True)
+    tray_thread.start()
+
     try:
         assistant.listen_loop()
     except KeyboardInterrupt:
@@ -640,3 +626,7 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"Критическая ошибка: {e}")
         assistant.speak("Произошла ошибка. Перезапустите ассистента.")
+    finally:
+        # Если цикл завершился, остановить трей
+        if assistant.running:
+            assistant.running = False
