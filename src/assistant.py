@@ -20,7 +20,7 @@ from datetime import datetime
 
 # ===== КОНФИГУРАЦИЯ =====
 MODEL_PATH = "model"
-WAKE_WORD = "руна"  # теперь в нижнем регистре
+WAKE_WORD = "Руна"  # теперь в нижнем регистре
 COOLDOWN_SECONDS = 2
 
 YANDEX_BROWSER_PATH = None
@@ -82,7 +82,7 @@ class Assistant:
         self.confirmation_timer = None
 
         self.speak(self._get_greeting_info())
-        print("Ассистент запущен. Скажите 'руна' для активации.")
+        print("Ассистент запущен. Скажите 'Руна' для активации.")
 
     # ------------------ Погода и приветствие ------------------
     def _get_weather(self):
@@ -153,7 +153,7 @@ class Assistant:
         raise FileNotFoundError("Не найдена папка с моделью Vosk внутри 'model/'.")
 
     def speak(self, text):
-        print(f"руна: {text}")
+        print(f"Руна: {text}")
         def _speak():
             with self.tts_lock:
                 engine = pyttsx3.init()
@@ -407,7 +407,7 @@ class Assistant:
     # ------------------ Обработка команд ------------------
     def process_command(self, text):
         text_lower = text.lower().strip()
-        for phrase in ["руна", "слушаем вас", "слушаю вас", "жаль вас з", "служит вас"]:
+        for phrase in ["Руна", "слушаем вас", "слушаю вас", "жаль вас з", "служит вас"]:
             text_lower = text_lower.replace(phrase, "").strip()
         print(f"Распознано (команда после очистки): '{text_lower}'")
 
@@ -577,7 +577,7 @@ class Assistant:
     def start_cooldown(self):
         self.cooldown_until = time.time() + COOLDOWN_SECONDS
         self.is_active = False
-        print(f"Кулдаун {COOLDOWN_SECONDS} сек. Игнорирую 'руна' до {time.ctime(self.cooldown_until)}")
+        print(f"Кулдаун {COOLDOWN_SECONDS} сек. Игнорирую 'Руна' до {time.ctime(self.cooldown_until)}")
 
     # ------------------ Главный цикл ------------------
     def listen_loop(self):
