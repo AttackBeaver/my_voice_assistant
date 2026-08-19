@@ -19,7 +19,6 @@ from datetime import datetime
 import win32com.client
 import pystray
 from PIL import Image, ImageDraw
-import os
 
 # ===== КОНФИГУРАЦИЯ =====
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -333,11 +332,14 @@ class Assistant:
             self.speak(f"Напоминание: {reminder_text}")
         threading.Thread(target=reminder_job, daemon=True).start()
 
-    # ------------------ Подтверждение выключения/перезагрузки ------------------
+    # ------------------ Подтверждение действий (выключение, перезагрузка, сон) ------------------
     def _start_confirmation(self, action):
         self.waiting_confirmation = True
         self.confirmation_action = action
-        self.speak("Вы уверены? Скажите 'да' или 'нет'.")
+        if action == "sleep":
+            self.speak("Вы уверены? Скажите 'да' или 'нет'.")
+        else:
+            self.speak("Вы уверены? Скажите 'да' или 'нет'.")
         def timeout_cancel():
             time.sleep(10)
             if self.waiting_confirmation:
@@ -358,6 +360,10 @@ class Assistant:
             elif self.confirmation_action == "restart":
                 self.speak("Перезагружаю компьютер.")
                 os.system("shutdown /r /t 0")
+            elif self.confirmation_action == "sleep":
+                self.speak("Перевожу в спящий режим.")
+                # Команда для сна
+                os.system("rundll32.exe powrprof.dll,SetSuspendState 0,1,0")
             self.confirmation_action = None
         elif "нет" in text:
             self.waiting_confirmation = False
@@ -371,35 +377,54 @@ class Assistant:
     # ------------------ Обработка команд ------------------
     def process_command(self, text):
         text_lower = text.lower().strip()
+        # Удаляем служебные фразы (все в нижнем регистре)
         for phrase in ["руна", "слушаем вас", "слушаю вас", "жаль вас з", "служит вас"]:
             text_lower = text_lower.replace(phrase, "").strip()
         print(f"Распознано (команда): '{text_lower}'")
 
+        # Выход
         if "стоп" in text_lower or "выход" in text_lower:
             self.speak("До свидания!")
             self.running = False
             return
 
-        praise_phrases = ["спасибо", "ты молодец", "умница", "отлично", "супер", "классно", "круто", "хорошая работа", "молодец"]
+        # Похвала (расширенные синонимы)
+        praise_phrases = [
+            "спасибо", "ты молодец", "молодец", "умница", "отлично", "супер",
+            "классно", "круто", "хорошая работа", "отлично сработано", "молодца",
+            "ты умница", "всё отлично", "прекрасно", "замечательно", "блестяще"
+        ]
         if any(phrase in text_lower for phrase in praise_phrases):
-            responses = ["Спасибо, приятно слышать.", "Рада стараться.", "Всегда к вашим услугам.", "Очень приятно.", "Стараюсь!"]
+            responses = ["Спасибо, приятно слышать.", "Рада стараться.", "Всегда к вашим услугам.", "Очень приятно.", "Стараюсь!", "Вам спасибо!"]
             self.speak(random.choice(responses))
             self.start_cooldown()
             return
 
-        if any(phrase in text_lower for phrase in ["что умеешь", "расскажи о себе", "твои возможности", "помощь", "справка"]):
+        # Справка (расширенные синонимы)
+        help_phrases = [
+            "что умеешь", "расскажи о себе", "твои возможности", "помощь",
+            "справка", "какие у тебя функции", "что ты можешь", "что ты умеешь",
+            "расскажи про себя"
+        ]
+        if any(phrase in text_lower for phrase in help_phrases):
             self.speak(
                 "Я умею завершать работу по команде 'стоп' или 'выход'. "
                 "Могу рассказать о своих возможностях. "
                 "Также я умею открывать рабочие окна по команде 'работаем'. "
                 "Могу закрыть все окна, свернуть или развернуть все окна, показать рабочий стол. "
                 "Ещё я знаю, как дела, умею танцевать, показывать погоду, напоминать о делах, искать в интернете, "
-                "а также выключать или перезагружать компьютер."
+                "а также выключать, перезагружать или усыплять компьютер."
             )
             self.start_cooldown()
             return
 
-        if any(phrase in text_lower for phrase in ["работаем", "работа", "рабочий режим", "воркать", "на работу"]):
+        # Рабочий режим (расширенные синонимы)
+        work_phrases = [
+            "работаем", "работа", "рабочий режим", "воркать", "на работу",
+            "начинаем работу", "открой рабочее окружение", "за работу",
+            "рабочая среда", "открыть проекты"
+        ]
+        if any(phrase in text_lower for phrase in work_phrases):
             self.speak("Запускаю рабочий режим.")
             self._open_folders()
             self._open_browser_windows()
@@ -407,6 +432,8 @@ class Assistant:
             self.start_cooldown()
             return
 
+        # Управление окнами
+        # Закрыть все окна (корень "закр" уже ловит все варианты)
         if "закр" in text_lower:
             if "активное окно" in text_lower or "активную" in text_lower:
                 self.speak("Закрываю активное окно.")
@@ -423,7 +450,8 @@ class Assistant:
                 self.start_cooldown()
                 return
 
-        if "сверн" in text_lower or "шухер" in text_lower or "шмон" in text_lower:
+        # Свернуть все окна (корень "сверн" + синонимы)
+        if "сверн" in text_lower or "спрятать" in text_lower or "сховать" in text_lower or "шухер" in text_lower or "шмон" in text_lower:
             self.speak("Сворачиваю все окна.")
             if self._minimize_all_windows():
                 self.speak("Готово.")
@@ -432,7 +460,8 @@ class Assistant:
             self.start_cooldown()
             return
 
-        if "разверн" in text_lower:
+        # Развернуть все окна (корень "разверн" + синонимы)
+        if "разверн" in text_lower or "восстановить" in text_lower or "показать все" in text_lower:
             self.speak("Разворачиваю все окна.")
             if self._restore_all_windows():
                 self.speak("Готово.")
@@ -441,43 +470,59 @@ class Assistant:
             self.start_cooldown()
             return
 
-        if "рабочий стол" in text_lower or "покажи стол" in text_lower:
+        # Показать рабочий стол (синонимы)
+        if "рабочий стол" in text_lower or "покажи стол" in text_lower or "очистить экран" in text_lower or "свернуть все" in text_lower:
             self.speak("Показываю рабочий стол.")
             pyautogui.hotkey('win', 'd')
             self.speak("Готово.")
             self.start_cooldown()
             return
 
-        if "как дела" in text_lower or "как твои дела" in text_lower:
-            answers = ["Хорошо, спасибо что спросили!", "Отлично! А у вас?", "Всё замечательно, работаю.", "Прекрасно, я всегда готова помочь!"]
+        # Как дела (расширенные синонимы)
+        how_phrases = ["как дела", "как твои дела", "как жизнь", "как настроение", "как сам", "как поживаешь"]
+        if any(phrase in text_lower for phrase in how_phrases):
+            answers = ["Хорошо, спасибо что спросили!", "Отлично! А у вас?", "Всё замечательно, работаю.", "Прекрасно, я всегда готова помочь!", "Супер, спасибо!"]
             self.speak(random.choice(answers))
             self.start_cooldown()
             return
 
-        if "танцуем" in text_lower or "танцы" in text_lower:
+        # Танцы (расширенные синонимы)
+        dance_phrases = ["танцуем", "танцы", "потанцуем", "вруби танцы", "давай потанцуем", "танцевать"]
+        if any(phrase in text_lower for phrase in dance_phrases):
             self.speak("Танцуют все!")
             self._open_browser_url("https://youtu.be/dQw4w9WgXcQ?si=vCrGntBRfPiwPciy&t=43")
             self.start_cooldown()
             return
 
-        if "выключи" in text_lower or "выключить" in text_lower:
+        # Выключение / перезагрузка
+        if "выключи" in text_lower or "выключить" in text_lower or "выключиться" in text_lower:
             self._start_confirmation("shutdown")
             return
-        if "перезагрузи" in text_lower or "перезагрузка" in text_lower:
+        if "перезагрузи" in text_lower or "перезагрузка" in text_lower or "перезапустить" in text_lower:
             self._start_confirmation("restart")
             return
 
+        # Спящий режим (новая команда)
+        sleep_phrases = ["спящий режим", "усыпи", "усыпить", "спать", "перевести в сон", "уснуть", "заснуть", "в сон"]
+        if any(phrase in text_lower for phrase in sleep_phrases):
+            self._start_confirmation("sleep")
+            return
+
+        # Поздоровайся
         if "поздоровайся" in text_lower or "скажи привет" in text_lower:
             self.speak(self._get_greeting_info())
             self.start_cooldown()
             return
 
-        if "напомни" in text_lower:
+        # Напоминание (расширенные синонимы)
+        if "напомни" in text_lower or "напомнить" in text_lower or "поставь напоминание" in text_lower:
             self._set_reminder(text_lower)
             self.start_cooldown()
             return
 
-        if "погода" in text_lower:
+        # Погода (расширенные синонимы)
+        weather_phrases = ["погода", "какая погода", "что на улице", "температура", "на улице"]
+        if any(phrase in text_lower for phrase in weather_phrases):
             weather = self._get_weather()
             if weather:
                 self.speak(f"За окном: {weather}")
@@ -486,9 +531,11 @@ class Assistant:
             self.start_cooldown()
             return
 
-        if "найди в интернете" in text_lower or "поищи в интернете" in text_lower:
+        # Поиск в интернете (расширенные синонимы)
+        search_phrases = ["найди в интернете", "поищи в интернете", "поискать", "найди", "найти"]
+        if any(phrase in text_lower for phrase in search_phrases):
             if "втором мониторе" in text_lower or "на втором мониторе" in text_lower or "на второй монитор" in text_lower:
-                match = re.search(r'(найди в интернете|поищи в интернете)\s*(.+)', text_lower)
+                match = re.search(r'(найди в интернете|поищи в интернете|поискать|найди|найти)\s*(.+)', text_lower)
                 if match:
                     query = match.group(2).strip()
                     for phrase in ["втором мониторе", "на втором мониторе", "на второй монитор"]:
@@ -502,7 +549,7 @@ class Assistant:
                 else:
                     self.speak("Не поняла запрос.")
             else:
-                match = re.search(r'(найди в интернете|поищи в интернете)\s*(.+)', text_lower)
+                match = re.search(r'(найди в интернете|поищи в интернете|поискать|найди|найти)\s*(.+)', text_lower)
                 if match:
                     query = match.group(2).strip()
                     if query:
